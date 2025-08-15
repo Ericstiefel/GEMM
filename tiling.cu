@@ -45,5 +45,5 @@ void tile_cm_launcher(const float* d_A, const float* d_B, float* d_C, const int 
     dim3 numBlocks((N + TILE_WIDTH - 1) / TILE_WIDTH,
                 (M + TILE_WIDTH - 1) / TILE_WIDTH);
 
-    tiling_cm<TILE_WIDTH><<<threadsPerBlock, numBlocks>>>(d_A, d_B, d_C, M, K, N);
+    tiling_cm<TILE_WIDTH><<<numBlocks, threadsPerBlock>>>(d_A, d_B, d_C, M, K, N);
 }

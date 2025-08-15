@@ -1,5 +1,7 @@
 #include <cuda_runtime.h>
 #include <wmma.h>
+#include <cuda_fp16.h>
+
 
 /*
 "Simultaneous" Tensor Core pipeline: 

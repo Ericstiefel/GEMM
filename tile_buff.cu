@@ -25,7 +25,7 @@ __global__ void tiled_double_buffer(const float* A, const float* B, float* C, co
     
     int read_buf = 0;
     int write_buf = 1;
-e.
+
     int first_tile_a_col = 0 * TILE_WIDTH_T + local_col;
     int first_tile_b_row = 0 * TILE_WIDTH_T + local_row;
     
@@ -87,5 +87,7 @@ void tiled_buff_launcher(const float* d_A, const float* d_B, float* d_C, const i
     dim3 numBlocks((N + TILE_WIDTH - 1) / TILE_WIDTH,
                 (M + TILE_WIDTH - 1) / TILE_WIDTH);
 
-    tiled_buff<TILE_WIDTH><<<threadsPerBlock, numBlocks>>>(d_A, d_B, d_C, M, K, N);
+    tiled_double_buffer<TILE_WIDTH><<<numBlocks, threadsPerBlock>>>(d_A, d_B, d_C, M, K, N);
 }
+
+template void tiled_buff_launcher<32>(const float*, const float*, float*, const int, const int, const int);
