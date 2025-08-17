@@ -1,6 +1,8 @@
 #include <cuda_runtime.h>
-#include <wmma.h>
+#include <mma.h>
 #include <cuda_fp16.h>
+
+using namespace nvcuda;
 
 
 /*
@@ -19,8 +21,7 @@
 #define WMMA_M 16
 #define WMMA_N 16
 #define WMMA_K 16
-
-__global__ void tc_gemm(const float* A, const float* B, float* C, const int M, const int K, const int N) {
+__global__ void tc_gemm(const half* A, const half* B, float* C, const int M, const int K, const int N) {
     // Identify the warp and its position in the thread block.
     // In this simple example, we assume one warp per block for clarity.
     // A more complex implementation would use threadIdx to map threads to the warp.
@@ -31,11 +32,11 @@ __global__ void tc_gemm(const float* A, const float* B, float* C, const int M, c
     __shared__ half A_tile[2][WMMA_M * WMMA_K];
     __shared__ half B_tile[2][WMMA_K * WMMA_N];
 
-    nvcuda::wmma::fragment<nvcuda::wmma::matrix_a, WMMA_M, WMMA_N, WMMA_K, half, nvcuda::wmma::row_major> A_frag[2];
-    nvcuda::wmma::fragment<nvcuda::wmma::matrix_b, WMMA_M, WMMA_N, WMMA_K, half, nvcuda::wmma::col_major> B_frag[2];
-    nvcuda::wmma::fragment<nvcuda::wmma::accumulator, WMMA_M, WMMA_N, WMMA_K, float> C_frag;
+    wmma::fragment<wmma::matrix_a, WMMA_M, WMMA_N, WMMA_K, half, wmma::row_major> A_frag[2];
+    wmma::fragment<wmma::matrix_b, WMMA_M, WMMA_N, WMMA_K, half, wmma::col_major> B_frag[2];
+    wmma::fragment<wmma::accumulator, WMMA_M, WMMA_N, WMMA_K, float> C_frag;
 
-    nvcuda::wmma::fill_fragment(C_frag, 0.0f);
+    wmma::fill_fragment(C_frag, 0.0f);
 
     int buffer_idx = 0;
 
@@ -44,14 +45,14 @@ __global__ void tc_gemm(const float* A, const float* B, float* C, const int M, c
     // into the first shared memory buffer. This "primes" the pipeline.
     // Each thread in the warp loads a piece of the tile.
     for (int i = threadIdx.y * 8 + threadIdx.x; i < WMMA_M * WMMA_K; i += 256) { // 16*16=256
-        A_tile[buffer_idx][i] = __float2half(A[warp_m * WMMA_M * K + i]);
-        B_tile[buffer_idx][i] = __float2half(B[warp_n * WMMA_N + (i % WMMA_K) * N + (i / WMMA_K)]);
+        A_tile[buffer_idx][i] = A[warp_m * WMMA_M * K + i];
+        B_tile[buffer_idx][i] = B[warp_n * WMMA_N + (i % WMMA_K) * N + (i / WMMA_K)];
     }
     __syncthreads(); 
 
     // --- Stage 2: Load first tile into fragments ---
-    nvcuda::wmma::load_matrix_sync(A_frag[buffer_idx], A_tile[buffer_idx], WMMA_K);
-    nvcuda::wmma::load_matrix_sync(B_frag[buffer_idx], B_tile[buffer_idx], WMMA_N);
+    wmma::load_matrix_sync(A_frag[buffer_idx], A_tile[buffer_idx], WMMA_K);
+    wmma::load_matrix_sync(B_frag[buffer_idx], B_tile[buffer_idx], WMMA_K);
 
     // --- Pipelined Main Loop ---
     // This loop iterates over the tiles in the K dimension.
@@ -68,13 +69,13 @@ __global__ void tc_gemm(const float* A, const float* B, float* C, const int M, c
 
         // --- Stage 2 (for this iteration): Load Shared -> Fragments ---
         // Load the *current* tile from shared memory into the *other* set of fragments.
-        nvcuda::wmma::load_matrix_sync(A_frag[next_buffer_idx], A_tile[next_buffer_idx], WMMA_K);
-        nvcuda::wmma::load_matrix_sync(B_frag[next_buffer_idx], B_tile[next_buffer_idx], WMMA_N);
+        wmma::load_matrix_sync(A_frag[next_buffer_idx], A_tile[next_buffer_idx], WMMA_K);
+        wmma::load_matrix_sync(B_frag[next_buffer_idx], B_tile[next_buffer_idx], WMMA_N);
         
         // --- Stage 3 (for previous iteration): Compute ---
         // Perform the matrix-multiply-accumulate operation on the tile loaded in the *previous* iteration.
         // D = A * B + C
-        nvcuda::wmma::mma_sync(C_frag, A_frag[buffer_idx], B_frag[buffer_idx], C_frag);
+        wmma::mma_sync(C_frag, A_frag[buffer_idx], B_frag[buffer_idx], C_frag);
 
         buffer_idx = next_buffer_idx; // Move to the next buffer for the next iteration.
         __syncthreads(); // Synchronize to ensure loads are complete before the next compute.
@@ -82,11 +83,23 @@ __global__ void tc_gemm(const float* A, const float* B, float* C, const int M, c
 
     // --- Final MMA Operation ---
     // The loop finishes one MMA operation short. Perform the final one here.
-    nvcuda::wmma::mma_sync(C_frag, A_frag[buffer_idx], B_frag[buffer_idx], C_frag);
+    wmma::mma_sync(C_frag, A_frag[buffer_idx], B_frag[buffer_idx], C_frag);
 
     // --- Stage 4: Store Result ---
     // Store the final result from the accumulator fragment back to global memory.
     int out_row = warp_m * WMMA_M;
     int out_col = warp_n * WMMA_N;
-    nvcuda::wmma::store_matrix_sync(C + out_row * N + out_col, C_frag, N, nvcuda::wmma::mem_row_major);
+    wmma::store_matrix_sync(C + out_row * N + out_col, C_frag, N, wmma::mem_row_major);
+}
+
+void tc_launcher(const half* d_A, const half* d_B, float* d_C, const int M, const int K, const int N) {
+    // Each block computes a 16x16 tile using Tensor Cores.
+    // We use a 2D block of 32x8=256 threads.
+    dim3 threadsPerBlock(32, 8); 
+
+    // The grid is sized to cover the entire output matrix C.
+    // Each block handles a 16x16 output tile (WMMA_M x WMMA_N).
+    dim3 numBlocks((N + 15) / 16, (M + 15) / 16);
+
+    tc_gemm<<<numBlocks, threadsPerBlock>>>(d_A, d_B, d_C, M, K, N);
 }

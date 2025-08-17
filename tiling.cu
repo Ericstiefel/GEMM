@@ -21,7 +21,7 @@ __global__ void tiling_cm(const float* A, const float* B, float* C, const int M,
         int b_col = global_col;
         
         A_tile[tile_row][tile_col] = (a_row < M && a_col < K) ? A[a_row * K + a_col] : 0.0f;
-        B_tile[tile_row][tile_col] = (b_row < M && b_col < K) ? B[b_row * K + b_col] : 0.0f;
+        B_tile[tile_row][tile_col] = (b_row < M && b_col < K) ? B[b_row * N + b_col] : 0.0f;
 
         __syncthreads();
 
@@ -47,3 +47,6 @@ void tile_cm_launcher(const float* d_A, const float* d_B, float* d_C, const int 
 
     tiling_cm<TILE_WIDTH><<<numBlocks, threadsPerBlock>>>(d_A, d_B, d_C, M, K, N);
 }
+
+// This line tells the compiler to create the code for the TILE_WIDTH = 32 version.
+template void tile_cm_launcher<32>(const float*, const float*, float*, int, int, int);

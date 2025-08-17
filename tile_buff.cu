@@ -5,8 +5,6 @@ The strategy here is to load one tile from global memory into one buffer, while 
 Must preload a tile into memory for intialization
 */
 
-#include <cuda_runtime.h>
-
 
 template <int TILE_WIDTH_T> 
 __global__ void tiled_double_buffer(const float* A, const float* B, float* C, const int M, const int K, const int N) {
@@ -90,4 +88,5 @@ void tiled_buff_launcher(const float* d_A, const float* d_B, float* d_C, const i
     tiled_double_buffer<TILE_WIDTH><<<numBlocks, threadsPerBlock>>>(d_A, d_B, d_C, M, K, N);
 }
 
-template void tiled_buff_launcher<32>(const float*, const float*, float*, const int, const int, const int);
+// This line tells the compiler to create the code for the TILE_WIDTH = 32 version.
+template void tiled_buff_launcher<32>(const float*, const float*, float*, int, int, int);
