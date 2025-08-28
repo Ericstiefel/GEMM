@@ -21,7 +21,7 @@ __global__ void tiling_cm(const float* A, const float* B, float* C, const int M,
         int b_col = global_col;
         
         A_tile[tile_row][tile_col] = (a_row < M && a_col < K) ? A[a_row * K + a_col] : 0.0f;
-        B_tile[tile_row][tile_col] = (b_row < M && b_col < K) ? B[b_row * N + b_col] : 0.0f;
+        B_tile[tile_row][tile_col] = (b_row < K && b_col < N) ? B[b_row * N + b_col] : 0.0f;
 
         __syncthreads();
 
