@@ -5,8 +5,8 @@ __global__ void tiling_cm(const float* A, const float* B, float* C, const int M,
     int tile_row = threadIdx.y;
     int tile_col = threadIdx.x;
 
-    int global_row = threadIdx.y + TILE_WIDTH * blockIdx.y;
-    int global_col = threadIdx.x + TILE_WIDTH * blockIdx.x;
+    int global_row = threadIdx.y + blockDim.y * blockIdx.y;
+    int global_col = threadIdx.x + blockDim.x * blockIdx.x;
 
     __shared__ float A_tile[TILE_WIDTH][TILE_WIDTH];
     __shared__ float B_tile[TILE_WIDTH][TILE_WIDTH];
